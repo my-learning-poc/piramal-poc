@@ -1,0 +1,204 @@
+version: '3.7'
+
+networks:
+  lms_network:
+    name: lms_network
+    driver: bridge
+services:
+  mongodb:
+    image: mongo:latest
+    container_name: mongodb
+    networks:
+      - lms_network
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongodb_data:/data/db
+
+  postgresql:
+    container_name: postgres
+    image: postgres:14.1-alpine
+    restart: always
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    networks:
+      - lms_network
+    ports:
+      - '5432:5432'
+    volumes:
+      #      - './database/postgres-db:/data/postgres'
+      - './database/postgres-db:/var/lib/postgresql/data'
+      # copy the sql script to create tables
+#      - './config/scripts/create_tables.sql:/docker-entrypoint-initdb.d/create_tables.sql'
+      # copy the sql script to fill tables
+  #      - ./data/fill_tables.sql:/docker-entrypoint-initdb.d/fill_tables.sql
+
+#  zookeeper:
+#    image: confluentinc/cp-zookeeper:5.5.0
+#    container_name: zookeeper
+#    networks:
+#      - lms_network
+#    ports:
+#      - '2181:2181'
+#    environment:
+#      ZOOKEEPER_CLIENT_PORT: 2181
+#
+#  broker:
+#    image: confluentinc/cp-kafka:5.5.0
+#    container_name: kafka-broker
+#    networks:
+#      - lms_network
+#    ports:
+#      - '19092:19092'
+#    depends_on:
+#      - zookeeper
+#    environment:
+#      KAFKA_BROKER_ID: 1
+#      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+#      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker:9092,CONNECTIONS_FROM_HOST://localhost:19092
+#      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONNECTIONS_FROM_HOST:PLAINTEXT
+#      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+#
+#  schemaregistry:
+#    image: confluentinc/cp-schema-registry:7.2.1
+#    container_name: schema-registry
+#    networks:
+#      - lms_network
+#    ports:
+#      - 8085:8085
+#    depends_on:
+#      - broker
+#    environment:
+#      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://broker:9092
+#      SCHEMA_REGISTRY_KAFKASTORE_SECURITY_PROTOCOL: PLAINTEXT
+#      SCHEMA_REGISTRY_HOST_NAME: schemaregistry
+#      SCHEMA_REGISTRY_LISTENERS: http://schemaregistry:8085
+#
+#      SCHEMA_REGISTRY_SCHEMA_REGISTRY_INTER_INSTANCE_PROTOCOL: "http"
+#      SCHEMA_REGISTRY_LOG4J_ROOT_LOGLEVEL: INFO
+#      SCHEMA_REGISTRY_KAFKASTORE_TOPIC: _schemas
+#
+#
+#  kafka-ui:
+#    container_name: kafka-ui
+#    image: provectuslabs/kafka-ui:latest
+#    networks:
+#      - lms_network
+#    ports:
+#      - 8080:8080
+#    environment:
+#      DYNAMIC_CONFIG_ENABLED: true
+#    volumes:
+#      - ./config/kui/config.yaml:/etc/kafkaui/dynamic_config.yaml
+
+  # Configuration environment variables:
+  # - DATAFLOW_VERSION and SKIPPER_VERSION specify what DataFlow and Skipper image versions to use.
+  # - STREAM_APPS_URI and TASK_APPS_URI are used to specify what Stream and Task applications to pre-register.
+  # - HOST_MOUNT_PATH and DOCKER_MOUNT_PATH are used to set the host and docker mount folders.
+  #   If not set HOST_MOUNT_PATH defaults to the local host folder where the docker compose is being started.
+  #   If not set DOCKER_MOUNT_PATH defaults to /home/cnb/scdf on dataflow-server and skipper containers.
+  #   Example to mount the local Maven repository: HOST_MOUNT_PATH=~/.m2 DOCKER_MOUNT_PATH=/home/cnb/.m2  docker-compose up
+  # - APPS_PORT_RANGE allows you to override the port range exported by the Skipper server. By default the APPS_PORT_RANGE
+  #   must supersede the local deployer's PORTRANGE_LOW and PORTRANGE_HIGH - the ports assigned to the stream apps run inside the Skipper container.
+  #   The stream apps tha run in their own docker containers must set [DOCKER_PORTRANGE_LOW, DOCKER_PORTRANGE_HIGH] range that
+  #   doesn't overlap with the APPS_PORT_RANGE.
+  #
+  # Exposed container ports:
+  # - 9393:9393               - Data Flow server port (http://localhost:9393/dashboard)
+  # - 7577:7577               - Skipper server port (http://localhost:7577/api)
+  # - 20000-20105:20000-20105 - Port range for all deployed stream applications that run inside the Skipper container (e.g. maven:// registered apps).
+  #                             That means you can reach the application's actuator endpoints from your host machine.
+  #                             The deployed stream applications that run in their own docker containers (e.g. docker:// registered apps),
+  #                             can be reached on the ports they expose.
+
+  dataflow-server:
+    user: root
+    platform: linux/amd64
+    image: springcloud/spring-cloud-dataflow-server:${DATAFLOW_VERSION:-2.11.0-SNAPSHOT}${BP_JVM_VERSION:-}
+    container_name: dataflow-server
+    networks:
+      - lms_network
+    ports:
+      - "9393:9393"
+    environment:
+      - LANG=en_US.utf8
+      - LC_ALL=en_US.utf8
+      - JDK_JAVA_OPTIONS=-Dfile.encoding=UTF-8 -Dsun.jnu.encoding=UTF-8
+      - SPRING_CLOUD_DATAFLOW_APPLICATIONPROPERTIES_STREAM_SPRING_CLOUD_STREAM_KAFKA_BINDER_BROKERS=PLAINTEXT://broker:9092
+      - SPRING_CLOUD_DATAFLOW_APPLICATIONPROPERTIES_STREAM_SPRING_CLOUD_STREAM_KAFKA_STREAMS_BINDER_BROKERS=PLAINTEXT://broker:9092
+      - SPRING_CLOUD_DATAFLOW_APPLICATIONPROPERTIES_STREAM_SPRING_CLOUD_STREAM_KAFKA_BINDER_ZKNODES=zookeeper:2181
+      - SPRING_CLOUD_DATAFLOW_APPLICATIONPROPERTIES_STREAM_SPRING_CLOUD_STREAM_KAFKA_STREAMS_BINDER_ZKNODES=zookeeper:2181
+      - SPRING_CLOUD_DATAFLOW_APPLICATIONPROPERTIES_STREAM_SPRING_KAFKA_STREAMS_PROPERTIES_METRICS_RECORDING_LEVEL=DEBUG
+      # Set CLOSECONTEXTENABLED=true to ensure that the CRT launcher is closed.
+      - SPRING_CLOUD_DATAFLOW_APPLICATIONPROPERTIES_TASK_SPRING_CLOUD_TASK_CLOSECONTEXTENABLED=true
+      - SPRING_CLOUD_SKIPPER_CLIENT_SERVER_URI=${SKIPPER_URI:-http://skipper-server:7577}/api
+      # (Optionally) authenticate the default Docker Hub access for the App Metadata access.
+      - SPRING_CLOUD_DATAFLOW_CONTAINER_REGISTRY_CONFIGURATIONS_DEFAULT_USER=${METADATA_DEFAULT_DOCKERHUB_USER}
+      - SPRING_CLOUD_DATAFLOW_CONTAINER_REGISTRY_CONFIGURATIONS_DEFAULT_SECRET=${METADATA_DEFAULT_DOCKERHUB_PASSWORD}
+      - SPRING_CLOUD_DATAFLOW_CONTAINER_REGISTRYCONFIGURATIONS_DEFAULT_USER=${METADATA_DEFAULT_DOCKERHUB_USER}
+      - SPRING_CLOUD_DATAFLOW_CONTAINER_REGISTRYCONFIGURATIONS_DEFAULT_SECRET=${METADATA_DEFAULT_DOCKERHUB_PASSWORD}
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgresql:5432/postgres
+      - SPRING_DATASOURCE_USERNAME=postgres
+      - SPRING_DATASOURCE_PASSWORD=postgres
+      - SPRING_DATASOURCE_DRIVER_CLASS_NAME=org.postgresql.Driver
+    depends_on:
+      - skipper-server
+    restart: always
+    volumes:
+      - ${HOST_MOUNT_PATH:-.}:${DOCKER_MOUNT_PATH:-/home/cnb/scdf}
+#
+#  app-import-stream:
+#    platform: linux/amd64
+#    image: springcloud/baseimage:1.0.1
+#    container_name: dataflow-app-import-stream
+#    networks:
+#      - lms_network
+#    depends_on:
+#      - dataflow-server
+#
+#  app-import-task:
+#    platform: linux/amd64
+#    image: springcloud/baseimage:1.0.1
+#    container_name: dataflow-app-import-task
+#    networks:
+#      - lms_network
+#    depends_on:
+#      - dataflow-server
+#    command: >
+#      /bin/sh -c "
+#
+#        ./wait-for-it.sh -t 360 dataflow-server:9393;
+#        wget -qO- '${DATAFLOW_URI:-http://dataflow-server:9393}/apps' --no-check-certificate --post-data='uri=${TASK_APPS_URI:-https://dataflow.spring.io/task-maven-latest&force=true}';
+#        echo 'Maven Task apps imported'"
+  skipper-server:
+    user: root
+    platform: linux/amd64
+    image: springcloud/spring-cloud-skipper-server:${SKIPPER_VERSION:-2.11.0-SNAPSHOT}${BP_JVM_VERSION:-}
+    container_name: skipper
+    networks:
+      - lms_network
+    depends_on:
+      - postgresql
+    ports:
+      - "7577:7577"
+      - ${APPS_PORT_RANGE:-20000-20195:20000-20195}
+    environment:
+      - LANG=en_US.utf8
+      - LC_ALL=en_US.utf8
+      - JDK_JAVA_OPTIONS=-Dfile.encoding=UTF-8 -Dsun.jnu.encoding=UTF-8
+      - SPRING_CLOUD_SKIPPER_SERVER_PLATFORM_LOCAL_ACCOUNTS_DEFAULT_PORTRANGE_LOW=20000
+      - SPRING_CLOUD_SKIPPER_SERVER_PLATFORM_LOCAL_ACCOUNTS_DEFAULT_PORTRANGE_HIGH=20190
+      - LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_CLOUD_SKIPPER_SERVER_DEPLOYER=ERROR
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgresql:5432/postgres
+      - SPRING_DATASOURCE_USERNAME=postgres
+      - SPRING_DATASOURCE_PASSWORD=postgres
+      - SPRING_DATASOURCE_DRIVER_CLASS_NAME=org.postgresql.Driver
+    restart: always
+    volumes:
+      - ${HOST_MOUNT_PATH:-.}:${DOCKER_MOUNT_PATH:-/home/cnb/scdf}
+volumes:
+  mongodb_data:
+    driver: local
+  postgres-db:
+    driver: local
